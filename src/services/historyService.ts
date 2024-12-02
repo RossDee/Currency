@@ -1,74 +1,27 @@
-import fs from 'fs';
-import path from 'path';
-import { ExchangeRate } from './currencyService';
+// Mock historical data generator
+const generateMockHistoricalData = (currency: string) => {
+  const data = [];
+  const now = new Date();
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const HISTORY_FILE = path.join(DATA_DIR, 'exchange_history.json');
+  // Generate 24 hours of mock data
+  for (let i = 0; i < 24; i++) {
+    const timestamp = new Date(now.getTime() - i * 60 * 60 * 1000).toISOString();
+    const baseRate = 100 + Math.random() * 10;
 
-interface HistoricalData {
-  [currency: string]: {
-    buyingRate: number;
-    sellingRate: number;
-    middleRate: number;
-    timestamp: string;
-  }[];
-}
-
-export async function initializeDataDirectory() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(HISTORY_FILE)) {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify({}));
-  }
-}
-
-export async function saveExchangeRate(rate: ExchangeRate) {
-  await initializeDataDirectory();
-  
-  let history: HistoricalData = {};
-  try {
-    const data = fs.readFileSync(HISTORY_FILE, 'utf-8');
-    history = JSON.parse(data);
-  } catch (error) {
-    console.error('Error reading history file:', error);
+    data.push({
+      currency,
+      timestamp,
+      buyingRate: baseRate - Math.random(),
+      sellingRate: baseRate + Math.random(),
+      middleRate: baseRate,
+    });
   }
 
-  if (!history[rate.currency]) {
-    history[rate.currency] = [];
-  }
+  return data.reverse();
+};
 
-  // Add new data point
-  history[rate.currency].push({
-    buyingRate: parseFloat(rate.buyingRate),
-    sellingRate: parseFloat(rate.sellingRate),
-    middleRate: parseFloat(rate.middleRate),
-    timestamp: new Date().toISOString()
-  });
-
-  // Keep only last 30 days of data
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  history[rate.currency] = history[rate.currency].filter(
-    data => new Date(data.timestamp) > thirtyDaysAgo
-  );
-
-  try {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
-  } catch (error) {
-    console.error('Error writing history file:', error);
-  }
-}
-
-export async function getExchangeRateHistory(currency: string) {
-  await initializeDataDirectory();
-  
-  try {
-    const data = fs.readFileSync(HISTORY_FILE, 'utf-8');
-    const history: HistoricalData = JSON.parse(data);
-    return history[currency] || [];
-  } catch (error) {
-    console.error('Error reading history file:', error);
-    return [];
-  }
-}
+export const getExchangeRateHistory = async (currency: string) => {
+  // In a real application, this would make an API call to fetch historical data
+  // For now, we'll return mock data
+  return generateMockHistoricalData(currency);
+};

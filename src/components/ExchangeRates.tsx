@@ -11,7 +11,7 @@ export default function ExchangeRates() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
-  const [historicalData, setHistoricalData] = useState<any[]>([]);
+  const [historicalData, setHistoricalData] = useState<{ [key: string]: any[] }>({});
 
   const fetchRates = async () => {
     try {
@@ -20,19 +20,24 @@ export default function ExchangeRates() {
       const currencyService = CurrencyService.getInstance();
       const data = await currencyService.getExchangeRates();
       setRates(data);
+
+      // Fetch historical data for all currencies
+      const historicalDataPromises = data.map(async (rate) => {
+        const history = await getExchangeRateHistory(rate.currency);
+        return { currency: rate.currency, history };
+      });
+
+      const historicalResults = await Promise.all(historicalDataPromises);
+      const historicalMap = historicalResults.reduce((acc, { currency, history }) => {
+        acc[currency] = history;
+        return acc;
+      }, {} as { [key: string]: any[] });
+
+      setHistoricalData(historicalMap);
     } catch (err) {
       setError('Failed to fetch exchange rates. Please try again later.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchHistoricalData = async (currency: string) => {
-    try {
-      const data = await getExchangeRateHistory(currency);
-      setHistoricalData(data);
-    } catch (err) {
-      console.error('Failed to fetch historical data:', err);
     }
   };
 
@@ -42,12 +47,6 @@ export default function ExchangeRates() {
     const interval = setInterval(fetchRates, 60000);
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (selectedCurrency) {
-      fetchHistoricalData(selectedCurrency);
-    }
-  }, [selectedCurrency]);
 
   if (loading) {
     return (
@@ -86,52 +85,73 @@ export default function ExchangeRates() {
               </button>
             </div>
             <div className="p-4">
-              <DetailedChart data={historicalData} currency={selectedCurrency} />
+              <DetailedChart
+                data={historicalData[selectedCurrency] || []}
+                currency={selectedCurrency}
+              />
             </div>
           </div>
         </div>
       )}
-      
+
       <div className="p-6 border-b">
         <h2 className="text-xl font-semibold">Current Exchange Rates</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Last updated: {rates[0]?.pubTime || 'N/A'}
-        </p>
+        <p className="text-sm text-gray-500 mt-1">Last updated: {rates[0]?.pubTime || 'N/A'}</p>
       </div>
-      
+
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Currency</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trend</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Buying Rate</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Selling Rate</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Middle Rate</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Currency
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Name
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Trend
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Buying Rate
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Selling Rate
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Middle Rate
+              </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {rates.map((rate) => (
-              <tr 
-                key={rate.currency} 
+              <tr
+                key={rate.currency}
                 className="hover:bg-gray-50 cursor-pointer"
                 onClick={() => setSelectedCurrency(rate.currency)}
               >
-                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{rate.currency}</td>
+                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
+                  {rate.currency}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap text-gray-500">{rate.name}</td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <InlineChart data={historicalData.filter(d => d.currency === rate.currency)} />
+                  <InlineChart data={historicalData[rate.currency] || []} />
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-gray-900">{rate.buyingRate.toFixed(2)}</div>
-                  <div className="text-xs text-gray-500">Cash: {rate.cashBuyingRate.toFixed(2)}</div>
+                  <div className="text-xs text-gray-500">
+                    Cash: {rate.cashBuyingRate.toFixed(2)}
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-gray-900">{rate.sellingRate.toFixed(2)}</div>
-                  <div className="text-xs text-gray-500">Cash: {rate.cashSellingRate.toFixed(2)}</div>
+                  <div className="text-xs text-gray-500">
+                    Cash: {rate.cashSellingRate.toFixed(2)}
+                  </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-gray-900">{rate.middleRate.toFixed(2)}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                  {rate.middleRate.toFixed(2)}
+                </td>
               </tr>
             ))}
           </tbody>
