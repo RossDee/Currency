@@ -1,27 +1,45 @@
-// Mock historical data generator
-const generateMockHistoricalData = (currency: string) => {
-  const data = [];
-  const now = new Date();
+interface HistoricalRate {
+  currency: string;
+  buyingRate: number;
+  sellingRate: number;
+  middleRate: number;
+  timestamp: string;
+}
 
-  // Generate 24 hours of mock data
-  for (let i = 0; i < 24; i++) {
-    const timestamp = new Date(now.getTime() - i * 60 * 60 * 1000).toISOString();
-    const baseRate = 100 + Math.random() * 10;
-
-    data.push({
-      currency,
-      timestamp,
-      buyingRate: baseRate - Math.random(),
-      sellingRate: baseRate + Math.random(),
-      middleRate: baseRate,
-    });
+export const getExchangeRateHistory = async (currency: string): Promise<HistoricalRate[]> => {
+  try {
+    const response = await fetch(`/api/exchange-history?currency=${currency}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch historical data');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching historical data:', error);
+    return [];
   }
-
-  return data.reverse();
 };
 
-export const getExchangeRateHistory = async (currency: string) => {
-  // In a real application, this would make an API call to fetch historical data
-  // For now, we'll return mock data
-  return generateMockHistoricalData(currency);
+export const saveExchangeRate = async (rate: {
+  currency: string;
+  buyingRate: number;
+  sellingRate: number;
+  middleRate: number;
+}) => {
+  try {
+    const response = await fetch('/api/exchange-history', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(rate),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to save historical data');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving historical data:', error);
+  }
 };

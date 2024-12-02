@@ -1,25 +1,48 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { ExchangeRate, CurrencyService } from '../services/currencyService';
 import InlineChart from './InlineChart';
 import DetailedChart from './DetailedChart';
-import { getExchangeRateHistory } from '../services/historyService';
+import CurrencyConverter from './CurrencyConverter';
+import { getExchangeRateHistory, saveExchangeRate } from '../services/historyService';
 
 export default function ExchangeRates() {
   const [rates, setRates] = useState<ExchangeRate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
-  const [historicalData, setHistoricalData] = useState<{ [key: string]: any[] }>({});
+  const [showConverter, setShowConverter] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [bocTimestamp, setBocTimestamp] = useState<string>('');
+  const [historicalData, setHistoricalData] = useState<{
+    [key: string]: {
+      buyingRate: number;
+      sellingRate: number;
+      middleRate: number;
+      timestamp: string;
+    }[];
+  }>({});
 
-  const fetchRates = async () => {
+  const fetchRates = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
       const currencyService = CurrencyService.getInstance();
       const data = await currencyService.getExchangeRates();
       setRates(data);
+      setLastUpdate(new Date());
+      setBocTimestamp(data[0]?.pubTime || '');
+
+      // Save each rate to history
+      await Promise.all(
+        data.map((rate) =>
+          saveExchangeRate({
+            currency: rate.currency,
+            buyingRate: rate.buyingRate,
+            sellingRate: rate.sellingRate,
+            middleRate: rate.middleRate,
+          }),
+        ),
+      );
 
       // Fetch historical data for all currencies
       const historicalDataPromises = data.map(async (rate) => {
@@ -31,22 +54,39 @@ export default function ExchangeRates() {
       const historicalMap = historicalResults.reduce((acc, { currency, history }) => {
         acc[currency] = history;
         return acc;
-      }, {} as { [key: string]: any[] });
+      }, {} as { [key: string]: (typeof historicalData)[string] });
 
       setHistoricalData(historicalMap);
-    } catch (err) {
+    } catch (error) {
+      console.error('Error fetching rates:', error);
       setError('Failed to fetch exchange rates. Please try again later.');
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
+
+  const refreshData = useCallback(async () => {
+    // Check if last update was less than 1 minute ago
+    const timeSinceLastUpdate = Date.now() - lastUpdate.getTime();
+    if (timeSinceLastUpdate < 60000) {
+      const timeToWait = Math.ceil((60000 - timeSinceLastUpdate) / 1000);
+      console.log(`Please wait ${timeToWait} seconds before refreshing again`);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    await fetchRates();
+    setLoading(false);
+  }, [fetchRates, lastUpdate]);
 
   useEffect(() => {
-    fetchRates();
+    refreshData();
+
     // Refresh rates every minute
-    const interval = setInterval(fetchRates, 60000);
+    const interval = setInterval(refreshData, 60000);
+
+    // Cleanup interval on component unmount
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshData]);
 
   if (loading) {
     return (
@@ -61,7 +101,7 @@ export default function ExchangeRates() {
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <p className="text-red-700">{error}</p>
         <button
-          onClick={fetchRates}
+          onClick={refreshData}
           className="mt-2 px-4 py-2 bg-red-100 hover:bg-red-200 rounded text-red-700 text-sm"
         >
           Retry
@@ -94,9 +134,48 @@ export default function ExchangeRates() {
         </div>
       )}
 
+      {showConverter && <CurrencyConverter rates={rates} onClose={() => setShowConverter(false)} />}
+
       <div className="p-6 border-b">
-        <h2 className="text-xl font-semibold">Current Exchange Rates</h2>
-        <p className="text-sm text-gray-500 mt-1">Last updated: {rates[0]?.pubTime || 'N/A'}</p>
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-semibold">Current Exchange Rates</h2>
+            <div className="flex flex-col space-y-1 text-sm text-gray-500 mt-1">
+              <div className="flex items-center space-x-2">
+                <p>BOC Update Time: {bocTimestamp || 'N/A'}</p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <p>Last Refresh: {lastUpdate.toLocaleTimeString()}</p>
+                <button
+                  onClick={refreshData}
+                  className="inline-flex items-center px-2 py-1 text-xs text-blue-600 hover:text-blue-800 focus:outline-none"
+                  title="Refresh interval: 1 minute"
+                >
+                  <svg
+                    className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowConverter(true)}
+            className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+          >
+            Currency Converter
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
