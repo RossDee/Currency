@@ -27,6 +27,54 @@ const initialRates: ExchangeRate[] = [
   }
 ];
 
+async function fetchCIBRates(): Promise<ExchangeRate[]> {
+  try {
+    const response = await axios.get('https://personalbank.cib.com.cn/pers/main/pubinfo/ifxQuotationQuery.do', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      },
+    });
+
+    const $ = cheerio.load(response.data);
+    const rates: ExchangeRate[] = [];
+
+    // CIB exchange rate table parsing
+    $('table.lst tr').each((_, row) => {
+      const cells = $(row).find('td');
+      if (cells.length >= 6) {
+        const rowData = cells.map((_, cell) => $(cell).text().trim()).get();
+        
+        // Skip header row and empty rows
+        if (rowData[0] && !isNaN(parseFloat(rowData[3]))) {
+          rates.push({
+            currency: rowData[0],
+            name: rowData[1] || rowData[0],
+            buyingRate: parseFloat(rowData[3]) || 0,
+            cashBuyingRate: parseFloat(rowData[3]) || 0,
+            sellingRate: parseFloat(rowData[4]) || 0,
+            cashSellingRate: parseFloat(rowData[4]) || 0,
+            middleRate: (parseFloat(rowData[3]) + parseFloat(rowData[4])) / 2 || 0,
+            pubTime: new Date().toISOString()
+          });
+        }
+      }
+    });
+
+    if (rates.length > 0) {
+      console.log(`Successfully parsed ${rates.length} CIB exchange rates`);
+      return rates;
+    }
+    throw new Error('No CIB rates found in the response');
+  } catch (error) {
+    console.error('Error fetching CIB rates:', error);
+    throw error;
+  }
+}
+
 export async function GET() {
   try {
     console.log('Attempting to fetch BOC exchange rates...');
@@ -105,25 +153,31 @@ export async function GET() {
       return NextResponse.json(rates);
     }
 
-    console.log('No rates found in the response. HTML preview:', response.data.substring(0, 1000));
-    return NextResponse.json(
-      { error: 'No exchange rates found' },
-      { status: 404 }
-    );
+    // If BOC fails, try CIB as fallback
+    console.log('No BOC rates found, trying CIB rates...');
+    const cibRates = await fetchCIBRates();
+    return NextResponse.json(cibRates);
 
   } catch (error) {
     console.error('Error fetching BOC rates:', error);
-    if (axios.isAxiosError(error)) {
-      console.error('Axios error details:', {
-        message: error.message,
-        code: error.code,
-        status: error.response?.status,
-        data: error.response?.data
-      });
+    
+    // Try CIB rates as fallback
+    try {
+      console.log('Attempting to fetch CIB rates as fallback...');
+      const cibRates = await fetchCIBRates();
+      return NextResponse.json(cibRates);
+    } catch (cibError) {
+      console.error('Error fetching CIB rates:', cibError);
+      if (axios.isAxiosError(error)) {
+        console.error('Axios error details:', {
+          message: error.message,
+          code: error.code,
+          status: error.response?.status,
+          data: error.response?.data
+        });
+      }
+      // If both BOC and CIB fail, return initial rates
+      return NextResponse.json(initialRates);
     }
-    return NextResponse.json(
-      { error: 'Failed to fetch exchange rates' },
-      { status: 500 }
-    );
   }
 }
